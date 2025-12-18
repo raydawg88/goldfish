@@ -1,0 +1,33 @@
+{
+  "version": "2.0.0",
+  "installed": "2025-01-01T00:00:00Z",
+  "memory_path": "~/Goldfish",
+  "vaults": {
+    "personal": {
+      "description": "Side projects and personal stuff",
+      "keywords": ["hobby", "personal", "learning"]
+    },
+    "work": {
+      "description": "Day job projects",
+      "keywords": ["client", "work", "business"]
+    }
+  },
+  "default_vault": "personal",
+  "auto_save": {
+    "enabled": true,
+    "interval_minutes": 5,
+    "cooldown_seconds": 180
+  },
+  "projects": {
+    "my-saas": {
+      "vault": "personal",
+      "description": "My SaaS side project",
+      "aliases": ["saas", "my-app"]
+    },
+    "client-acme": {
+      "vault": "work",
+      "description": "Acme Corp client project",
+      "aliases": ["acme"]
+    }
+  }
+}
