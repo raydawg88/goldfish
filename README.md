@@ -1,3 +1,6 @@
+
+<img width="1536" height="1024" alt="ChatGPT Image Dec 18, 2025, 08_53_41 PM" src="https://github.com/user-attachments/assets/3d4cabca-bc40-48e9-a589-52d40d29b19a" />
+
 # 🐠 Goldfish
 
 **Persistent, organized memory for Claude Code.**
