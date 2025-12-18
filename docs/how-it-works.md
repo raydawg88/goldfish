@@ -115,11 +115,12 @@ Loaded automatically at session start. Contains:
 
 - Project description
 - Current status
+- **Token estimates** for all memory files (e.g., `Tokens: small ~440 | medium ~1.4k | large ~25k`)
 - Key decisions and WHY
 - Recent work (2-3 bullets)
 - Stack/technologies
 
-**Target size:** 300-500 words
+**Target size:** 300-500 words (~100-150 tokens)
 
 ### medium.md (Working Context)
 
@@ -152,6 +153,18 @@ The hotwords trigger different levels of memory loading:
 | *(none)* | `small.md` | Quick check-in, simple tasks |
 | "remember" | `small.md` + `medium.md` | Resuming work, need context |
 | "ultra remember" | All three | Deep dive, debugging history |
+
+### Token-Aware Loading
+
+Before loading `medium.md` or `large.md`, Claude checks the token estimates in `small.md` and asks for confirmation:
+
+**Example — "remember":**
+> "Session history (medium.md) is ~1.4k tokens. Load it?"
+
+**Example — "ultra remember":**
+> "Full transcripts (large.md) is ~25k tokens — that's substantial. Load all of it, or looking for something specific?"
+
+This prevents accidentally burning expensive context on simple questions. The token estimates are calculated during `/gfsave` (bytes ÷ 4 ≈ tokens) and stored in the `small.md` header.
 
 ## Vault System
 

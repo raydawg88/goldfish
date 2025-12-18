@@ -41,18 +41,38 @@ Run the agent pipeline (you ARE the agents):
 - What blockers exist?
 - What are the next steps?
 
-**3c. Update small.md:**
+**3c. Calculate token estimates:**
+```bash
+wc -c goldfish/small.md goldfish/medium.md goldfish/large.md
+```
+Estimate: bytes / 4 = tokens. Format large numbers as ~6.2k, ~52k, etc.
+
+**3d. Update small.md:**
+Include the Tokens line in the header:
+```markdown
+# [Project Name]
+
+**[Brief description]**
+
+Sessions: [count] | Last: [relative time]
+Tokens: small ~[X] | medium ~[X] | large ~[X]
+
+## Quick Context
+...
+```
+
+Also include:
 - Current status (from LATEST session)
 - Key decisions with rationale
 - Stack/technologies used
 - Recent work summary (2-3 bullets)
 
-**3d. Update medium.md:**
+**3e. Update medium.md:**
 - Add session summary for each new session
 - What happened, what was built
 - Problems solved, blockers hit
 
-**3e. Clear the inbox:**
+**3f. Clear the inbox:**
 Replace inbox.md content with:
 ```markdown
 # [Project Name] - Inbox

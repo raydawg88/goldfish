@@ -61,11 +61,15 @@ Run `/gfstatus` to check system health. You can also:
 
 ### What are the hotwords?
 
-| Say This | Claude Loads |
-|----------|--------------|
-| *(nothing)* | Quick context (small.md) |
-| "remember" | Quick + working context (small.md + medium.md) |
-| "ultra remember" | Everything (all three files) |
+| Say This | Claude Does |
+|----------|-------------|
+| *(nothing)* | Loads quick context (small.md) automatically |
+| "remember" | Tells you token cost, asks to confirm, then loads medium.md |
+| "ultra remember" | Warns about size, asks to confirm, then loads large.md |
+
+### Why does Claude ask before loading more context?
+
+To save tokens (and money). Loading a 50k-token transcript for a simple question is wasteful. Claude checks the token estimates in `small.md` and confirms before loading larger files. The estimates are updated every time you run `/gfsave`.
 
 ### How often should I run /gfsave?
 

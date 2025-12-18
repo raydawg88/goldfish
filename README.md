@@ -40,11 +40,12 @@ Claude Code has basic memory. Goldfish is something else entirely.
 |---------|---------------------|----------|
 | Remembers sessions | Last few, vaguely | Every session, forever |
 | Organization | None | Projects, vaults, hierarchy |
-| Context loading | Random/automatic | Intentional, tiered |
+| Context loading | Random/automatic | Intentional, tiered, token-aware |
 | User control | None | Full control |
 | Cross-project | Mixed together | Cleanly separated |
 | Searchable history | No | Yes (full transcripts) |
 | Quality summaries | No | AI-generated summaries |
+| Token transparency | No | Shows token costs before loading |
 | Portable | No | Sync via Dropbox/iCloud |
 
 **Goldfish isn't just memory. It's a second brain for your development work.**
@@ -87,8 +88,10 @@ Control how much context Claude loads:
 | Say This | What Happens |
 |----------|--------------|
 | *(automatic)* | Claude reads `small.md` — quick context, key decisions |
-| **"remember"** | Claude also reads `medium.md` — working context, session history |
-| **"ultra remember"** | Claude reads `large.md` — complete session transcripts |
+| **"remember"** | Claude asks to confirm, then loads `medium.md` — session history |
+| **"ultra remember"** | Claude warns about size, then loads `large.md` — full transcripts |
+
+**Token-aware loading:** Before loading medium or large files, Claude tells you the estimated token cost and asks for confirmation. No more accidentally burning 50k tokens on a simple question.
 
 ### Commands
 
@@ -125,8 +128,8 @@ Control how much context Claude loads:
 ### What Each File Contains
 
 **`small.md`** — Quick Context (Auto-loaded)
-- Project description
-- Current status
+- Project description and current status
+- **Token estimates** for all memory files (e.g., `Tokens: small ~440 | medium ~1.4k | large ~25k`)
 - Key decisions and WHY they were made
 - Recent work summary
 
