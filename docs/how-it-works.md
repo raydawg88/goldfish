@@ -58,11 +58,23 @@ The installer injects a section into `~/.claude/CLAUDE.md` that tells Claude:
 
 - Goldfish exists and is active
 - How to use the commands (`/gfsave`, `/gfstatus`, `/gfnew`)
+- **Session-start processing** — check inbox, process pending sessions, then read
 - When to read memory files (session start, hotwords)
 - Where memories are stored
 - Rules to follow (never claim it doesn't exist, etc.)
 
 This is the critical piece that makes Claude "aware" of the memory system.
+
+### Session-Start Auto-Processing
+
+The key innovation: Claude processes pending sessions **at session start**, not just when you run `/gfsave`. This means:
+
+1. Session ends → transcript saved to `large.md`, `inbox.md` flagged
+2. Next session starts → Claude sees the flag, processes it first
+3. `small.md` and `medium.md` updated with quality summaries
+4. Claude reads fresh context
+
+**Why this matters:** Without this, if you ended a session yesterday and didn't run `/gfsave`, you'd start today with stale or missing context. This fixes that automatically.
 
 ### 2. Auto-Save Service
 

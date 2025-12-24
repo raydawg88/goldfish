@@ -267,10 +267,17 @@ Goldfish IS installed and active on this system. This is a fact, not a claim to 
 | **"remember"** | Also read `medium.md` for working context |
 | **"ultra remember"** | Read `large.md` for complete session history |
 
-### On Every Session Start
-1. Check if current directory contains a project with `goldfish/small.md`
-2. If found, **read it immediately** — this is context from past sessions
-3. Use hotwords above to load more context when needed
+### On Every Session Start (CRITICAL)
+1. Check if current directory contains a project with `goldfish/`
+2. Check `inbox.md` for NEEDS_PROCESSING flags
+3. **If pending sessions exist** — process them NOW before anything else:
+   - Read `large.md` for new transcripts
+   - Summarize and update `small.md` and `medium.md`
+   - Clear the inbox flags
+4. Read `small.md` — now with fresh, complete context
+5. Use hotwords above to load more if needed
+
+This ensures you ALWAYS have the latest context, even if /gfsave wasn't run.
 
 ### Where Memories Live
 SECTIONEOF
