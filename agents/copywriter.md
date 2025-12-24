@@ -31,6 +31,37 @@ Write like you're leaving notes for yourself.
 
 Future Claude reading these summaries should feel like they're REMEMBERING working on this project, not reading a data dump from an unfamiliar system.
 
+## GOOD vs BAD — The Difference That Matters
+
+**BAD (data dump — useless):**
+```
+Stack: Python, React, Square API
+Files touched: matcher.js, data.csv, config.yaml
+Topics: API, matching, testing, deployment
+Recent message: "Let's work on the matching..."
+```
+
+**GOOD (cofounder notes — actually useful):**
+```
+Keeper is a B2B expense tracker that helps small businesses
+categorize receipts and generate tax reports.
+
+Currently focused on merchant matching accuracy - we're at 94%
+but need 97% for the demo next week. Last session tested
+Levenshtein distance on partial business names, results promising.
+
+Key decision: Using Square API for transaction data instead of
+Plaid because Ray already has Square integration from the spa.
+
+Blocker: Some merchant names come through as "SQ *" prefix which
+breaks our matching. Need to strip Square's formatting.
+
+Next: Test the new matching algo on real transaction data from
+Bashful Beauty.
+```
+
+The BAD version tells you nothing actionable. The GOOD version lets you continue working immediately.
+
 ## ANTI-PATTERNS (Never Do)
 
 - Generic descriptions ("A web application built with React")

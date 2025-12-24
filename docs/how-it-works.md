@@ -166,6 +166,20 @@ Before loading `medium.md` or `large.md`, Claude checks the token estimates in `
 
 This prevents accidentally burning expensive context on simple questions. The token estimates are calculated during `/gfsave` (bytes ÷ 4 ≈ tokens) and stored in the `small.md` header.
 
+### Auto-Prompting for /gfsave
+
+To prevent quality summaries from piling up, Claude checks for unprocessed sessions at session start:
+
+```bash
+grep -r "NEEDS_PROCESSING" ~/Goldfish/*/*/goldfish/inbox.md 2>/dev/null | wc -l
+```
+
+If 3 or more sessions are waiting, Claude prompts:
+
+> "You have [X] sessions waiting for quality summaries. Run /gfsave?"
+
+This ensures you don't forget to generate summaries while keeping it non-intrusive for quick sessions.
+
 ## Vault System
 
 Vaults are top-level organizational units:
