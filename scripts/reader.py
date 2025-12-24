@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-🐠 Goldfish Reader
+Goldfish Reader Agent
 Scans Claude Code session files and extracts key information.
 """
 
@@ -11,18 +11,6 @@ from pathlib import Path
 from datetime import datetime
 from collections import defaultdict
 import re
-
-def load_config():
-    """Load Goldfish configuration."""
-    config_path = Path.home() / ".goldfish" / "config.json"
-    if config_path.exists():
-        with open(config_path) as f:
-            return json.load(f)
-    return {
-        "memory_path": str(Path.home() / "Goldfish"),
-        "vaults": {"personal": {}, "work": {}},
-        "default_vault": "personal"
-    }
 
 def extract_session_info(filepath: str) -> dict:
     """Extract key information from a session file."""
@@ -77,6 +65,7 @@ def extract_session_info(filepath: str) -> dict:
                     if isinstance(content, dict):
                         text = content.get("content", "")
                         if isinstance(text, list):
+                            # Extract text from content blocks
                             text_parts = []
                             for block in text:
                                 if isinstance(block, dict) and block.get("type") == "text":
@@ -100,6 +89,7 @@ def extract_session_info(filepath: str) -> dict:
                                     if tool_name:
                                         result["tools_used"].add(tool_name)
 
+                                    # Extract file paths from tool inputs
                                     tool_input = block.get("input", {})
                                     if isinstance(tool_input, dict):
                                         for key in ["file_path", "path", "filepath"]:
@@ -108,16 +98,20 @@ def extract_session_info(filepath: str) -> dict:
                                                 if fp:
                                                     result["files_touched"].add(fp)
 
+                                        # Check for mkdir commands
                                         cmd = tool_input.get("command", "")
                                         if isinstance(cmd, str) and "mkdir" in cmd:
+                                            # Extract directory from mkdir command
                                             match = re.search(r'mkdir\s+(?:-p\s+)?["\']?([^"\'&;]+)', cmd)
                                             if match:
                                                 result["directories_created"].add(match.group(1).strip())
 
-            # Convert sets to lists
+            # Convert sets to lists for JSON serialization
             result["files_touched"] = sorted(list(result["files_touched"]))
             result["directories_created"] = sorted(list(result["directories_created"]))
             result["tools_used"] = sorted(list(result["tools_used"]))
+
+            # Extract topics from first message and file paths
             result["topics"] = extract_topics(result)
 
     except Exception as e:
@@ -132,120 +126,330 @@ def extract_topics(session_info: dict) -> list:
     """Extract topics from session content."""
     topics = set()
 
-    msg = (session_info.get("first_user_message", "") or "").lower()
+    # From first message
+    msg = session_info.get("first_user_message", "") or ""
+    msg_lower = msg.lower()
 
+    # Common tech topics
     tech_keywords = {
-        "api": "API", "auth": "Auth", "database": "Database",
-        "postgres": "PostgreSQL", "supabase": "Supabase", "react": "React",
-        "next": "Next.js", "typescript": "TypeScript", "python": "Python",
-        "fastapi": "FastAPI", "docker": "Docker", "git": "Git",
-        "deploy": "Deployment", "test": "Testing", "debug": "Debugging",
-        "css": "CSS", "tailwind": "Tailwind", "ui": "UI",
-        "setup": "Setup", "install": "Installation", "config": "Config",
-        "mcp": "MCP", "claude": "Claude/AI", "agent": "AI Agents",
+        "api": "API Development",
+        "auth": "Authentication",
+        "database": "Database",
+        "postgres": "PostgreSQL",
+        "supabase": "Supabase",
+        "react": "React",
+        "next": "Next.js",
+        "typescript": "TypeScript",
+        "python": "Python",
+        "fastapi": "FastAPI",
+        "docker": "Docker",
+        "git": "Git",
+        "deploy": "Deployment",
+        "test": "Testing",
+        "debug": "Debugging",
+        "refactor": "Refactoring",
+        "css": "CSS/Styling",
+        "tailwind": "Tailwind CSS",
+        "ui": "UI Design",
+        "ux": "UX Design",
+        "setup": "Setup/Configuration",
+        "install": "Installation",
+        "config": "Configuration",
+        "mcp": "MCP Servers",
+        "claude": "Claude/AI",
+        "agent": "AI Agents",
+        "scrape": "Web Scraping",
+        "automation": "Automation",
+        "square": "Square API",
+        "payment": "Payments",
     }
 
     for keyword, topic in tech_keywords.items():
-        if keyword in msg:
+        if keyword in msg_lower:
             topics.add(topic)
 
+    # From file paths
     for fp in session_info.get("files_touched", []):
         fp_lower = fp.lower()
-        if ".py" in fp_lower: topics.add("Python")
-        if ".ts" in fp_lower or ".tsx" in fp_lower: topics.add("TypeScript")
-        if ".js" in fp_lower or ".jsx" in fp_lower: topics.add("JavaScript")
-        if "test" in fp_lower: topics.add("Testing")
-        if ".md" in fp_lower: topics.add("Documentation")
+        if ".py" in fp_lower:
+            topics.add("Python")
+        if ".ts" in fp_lower or ".tsx" in fp_lower:
+            topics.add("TypeScript")
+        if ".js" in fp_lower or ".jsx" in fp_lower:
+            topics.add("JavaScript")
+        if "component" in fp_lower:
+            topics.add("React Components")
+        if "api" in fp_lower:
+            topics.add("API Development")
+        if "test" in fp_lower:
+            topics.add("Testing")
+        if ".md" in fp_lower:
+            topics.add("Documentation")
 
     return sorted(list(topics))
 
-def classify_session(session_info: dict, config: dict) -> dict:
-    """Classify session into vault and project."""
+def load_config():
+    """Load Goldfish config.yaml."""
+    import yaml
+    config_path = Path.home() / "Library" / "CloudStorage" / "Dropbox-Personal" / "Goldfish" / ".goldfish" / "config.yaml"
+    if config_path.exists():
+        with open(config_path) as f:
+            return yaml.safe_load(f)
+    return {"default_vault": "personal", "consolidation_rules": [], "vaults": {}}
+
+
+# Directories that are NEVER project names - these are path infrastructure
+EXCLUDED_DIRS = {
+    # System paths
+    "Users", "rayhernandez", ".", "..", "Desktop", "Documents", "Downloads",
+    "Library", "CloudStorage", "Dropbox-Personal", "Applications",
+    # Goldfish structure
+    "Goldfish", "personal", "work", "private", "goldfish",
+    # Common code directories
+    "src", "lib", "app", "components", "pages", "api", "public", "static",
+    "node_modules", "dist", "build", "out", ".next", "__pycache__",
+    "tests", "test", "spec", "scripts", "config", "utils", "helpers",
+    "docs", "doc", "documentation", "examples", "assets", "images", "styles",
+    # Claude paths
+    "claude", "projects", "agents", "commands", "skills",
+    # Paths with special prefixes that get extracted wrong
+    "-users-rayhernandez",
+}
+
+# File extensions and patterns that are never project names
+EXCLUDED_PATTERNS = {".py", ".md", ".json", ".yaml", ".yml", ".js", ".ts", ".tsx", ".jsx", ".sh", ".jsonl"}
+
+
+def classify_session(session_info: dict) -> dict:
+    """Classify session into vault and project using config rules."""
 
     msg = (session_info.get("first_user_message", "") or "").lower()
     files = session_info.get("files_touched", [])
-    vaults = list(config.get("vaults", {}).keys())
+
+    config = load_config()
+    consolidation_rules = config.get("consolidation_rules", [])
+    vaults_config = config.get("vaults", {})
+    default_vault = config.get("default_vault", "personal")
 
     classification = {
-        "vault": config.get("default_vault", "personal"),
+        "vault": default_vault,
         "project": "UNCLEAR",
         "confidence": 50,
         "reasoning": ""
     }
 
-    # Try to identify project from file paths
-    project_patterns = defaultdict(int)
+    # Build alias-to-project mapping from config
+    alias_map = {}  # alias.lower() -> (project_name, vault)
+    for rule in consolidation_rules:
+        project_name = rule.get("name", "").lower()
+        vault = rule.get("vault", default_vault)
+        alias_map[project_name] = (project_name, vault)
+        for alias in rule.get("aliases", []):
+            alias_map[alias.lower()] = (project_name, vault)
+
+    # Extract potential project names from file paths
+    project_candidates = defaultdict(int)
     for fp in files:
         parts = fp.split("/")
         for part in parts:
-            if part and part not in ["Users", ".", "..", "Desktop", "Documents", "Projects", "src", "lib", "app", "components"]:
-                if not part.startswith(".") and len(part) > 2:
-                    project_patterns[part] += 1
+            part_lower = part.lower()
+            # Skip excluded directories and short/hidden names
+            if part_lower in {d.lower() for d in EXCLUDED_DIRS}:
+                continue
+            if part.startswith(".") or part.startswith("-") or len(part) <= 2:
+                continue
+            # Skip file names with extensions (these aren't project names)
+            if any(part_lower.endswith(ext) for ext in EXCLUDED_PATTERNS):
+                continue
+            # Skip UUIDs (session IDs that look like: 0d3b1f09-0dfa-4768...)
+            if re.match(r'^[0-9a-f]{8}-[0-9a-f]{4}-', part_lower):
+                continue
+            # Skip anything that looks like a number or starts with numbers
+            if part_lower[0].isdigit():
+                continue
+            project_candidates[part_lower] += 1
 
-    if project_patterns:
-        likely_project = max(project_patterns, key=project_patterns.get)
-        classification["project"] = likely_project
-        classification["confidence"] = min(90, 50 + project_patterns[likely_project] * 10)
-        classification["reasoning"] = f"Files in '{likely_project}' directory"
+    # First priority: check if any candidate matches a known alias
+    for candidate, count in sorted(project_candidates.items(), key=lambda x: -x[1]):
+        if candidate in alias_map:
+            project_name, vault = alias_map[candidate]
+            classification["project"] = project_name
+            classification["vault"] = vault
+            classification["confidence"] = min(95, 60 + count * 10)
+            classification["reasoning"] = f"Matched '{candidate}' to known project '{project_name}'"
+            break
 
-    # Check for vault keywords in message
-    for vault_name, vault_config in config.get("vaults", {}).items():
-        keywords = vault_config.get("keywords", [])
-        for keyword in keywords:
-            if keyword.lower() in msg:
-                classification["vault"] = vault_name
-                classification["reasoning"] += f"; matched '{keyword}' keyword"
+    # Second priority: check user message for project keywords
+    if classification["project"] == "UNCLEAR":
+        for alias, (project_name, vault) in alias_map.items():
+            if alias in msg:
+                classification["project"] = project_name
+                classification["vault"] = vault
+                classification["confidence"] = 70
+                classification["reasoning"] = f"Message contains project keyword '{alias}'"
                 break
+
+    # Third priority: check vault keywords in message
+    if classification["project"] == "UNCLEAR":
+        for vault_name, vault_config in vaults_config.items():
+            keywords = vault_config.get("keywords", [])
+            for keyword in keywords:
+                if keyword.lower() in msg:
+                    classification["vault"] = vault_name
+                    classification["reasoning"] = f"Message contains vault keyword '{keyword}'"
+                    break
+
+    # Fourth priority: use most common directory as project guess
+    if classification["project"] == "UNCLEAR" and project_candidates:
+        likely_project = max(project_candidates, key=project_candidates.get)
+        classification["project"] = likely_project
+        classification["confidence"] = min(70, 40 + project_candidates[likely_project] * 10)
+        classification["reasoning"] = f"Best guess from path frequency: '{likely_project}'"
+
+    # Fifth priority: setup/config detection from message
+    if classification["project"] == "UNCLEAR":
+        if any(kw in msg for kw in ["setup", "install", "config", "configure"]):
+            classification["project"] = "claude-setup"
+            classification["vault"] = "personal"
+            classification["confidence"] = 55
+            classification["reasoning"] = "Appears to be setup/configuration work"
+        elif "mcp" in msg:
+            classification["project"] = "claude-setup"
+            classification["vault"] = "personal"
+            classification["confidence"] = 55
+            classification["reasoning"] = "MCP server configuration"
 
     return classification
 
+def format_session_report(session_info: dict, classification: dict) -> str:
+    """Format a session analysis report."""
+
+    lines = [
+        "═" * 60,
+        f"Session: {session_info['filename']}",
+        f"Date: {session_info['date']}",
+        f"Messages: {session_info['message_count']}",
+        f"Size: {session_info['file_size'] / 1024:.1f} KB",
+        "",
+    ]
+
+    if session_info.get("error"):
+        lines.append(f"ERROR: {session_info['error']}")
+        lines.append("═" * 60)
+        return "\n".join(lines)
+
+    lines.append("FIRST USER MESSAGE:")
+    msg = session_info.get("first_user_message", "(none)")
+    if msg:
+        # Truncate and clean up
+        msg = msg[:300].replace("\n", " ").strip()
+        if len(session_info.get("first_user_message", "")) > 300:
+            msg += "..."
+        lines.append(f'"{msg}"')
+    else:
+        lines.append("(no user message found)")
+    lines.append("")
+
+    if session_info.get("topics"):
+        lines.append("KEY TOPICS:")
+        for topic in session_info["topics"][:8]:
+            lines.append(f"  - {topic}")
+        lines.append("")
+
+    if session_info.get("files_touched"):
+        lines.append(f"FILES TOUCHED ({len(session_info['files_touched'])} total):")
+        for fp in session_info["files_touched"][:10]:
+            lines.append(f"  - {fp}")
+        if len(session_info["files_touched"]) > 10:
+            lines.append(f"  ... and {len(session_info['files_touched']) - 10} more")
+        lines.append("")
+
+    if session_info.get("directories_created"):
+        lines.append("DIRECTORIES CREATED:")
+        for d in session_info["directories_created"][:5]:
+            lines.append(f"  - {d}")
+        lines.append("")
+
+    lines.append("READER ASSESSMENT:")
+    lines.append(f"  Project: {classification['project']}")
+    lines.append(f"  Vault: {classification['vault']}")
+    lines.append(f"  Confidence: {classification['confidence']}%")
+    lines.append(f'  Reasoning: "{classification["reasoning"]}"')
+    lines.append("═" * 60)
+
+    return "\n".join(lines)
+
 def main():
     """Main function to process all session files."""
-
-    config = load_config()
-    memory_path = Path(os.path.expanduser(config["memory_path"]))
-    goldfish_dir = Path.home() / ".goldfish"
 
     # Find all session files
     claude_dir = Path.home() / ".claude" / "projects"
 
     session_files = []
     for jsonl_file in claude_dir.rglob("*.jsonl"):
+        # Skip agent sessions for main analysis
         if "agent-" not in jsonl_file.name:
             session_files.append(str(jsonl_file))
 
-    print(f"🐠 Goldfish Reader")
-    print(f"Found {len(session_files)} session files")
+    # Also check history
+    history_file = Path.home() / ".claude" / "history.jsonl"
+    if history_file.exists():
+        session_files.append(str(history_file))
+
+    print(f"\n{'═' * 60}")
+    print("           🐠 GOLDFISH READER ANALYSIS")
+    print(f"{'═' * 60}")
+    print(f"\nFound {len(session_files)} main session files to analyze\n")
 
     all_sessions = []
 
     for filepath in sorted(session_files):
         session_info = extract_session_info(filepath)
-        classification = classify_session(session_info, config)
+        classification = classify_session(session_info)
 
+        # Store for later
         all_sessions.append({
             "info": session_info,
             "classification": classification
         })
 
+        # Print report
+        print(format_session_report(session_info, classification))
+        print()
+
     # Summary
+    print(f"\n{'═' * 60}")
+    print("                    SUMMARY")
+    print(f"{'═' * 60}")
+
+    by_vault = defaultdict(list)
     by_project = defaultdict(list)
+
     for s in all_sessions:
+        vault = s["classification"]["vault"]
         project = s["classification"]["project"]
+        by_vault[vault].append(s)
         by_project[project].append(s)
 
-    print(f"\nProjects found: {len(by_project)}")
+    print("\nBy Vault:")
+    for vault, sessions in sorted(by_vault.items()):
+        print(f"  {vault}: {len(sessions)} sessions")
+
+    print("\nBy Project:")
     for project, sessions in sorted(by_project.items()):
         print(f"  {project}: {len(sessions)} sessions")
 
     # Save results
-    output_path = goldfish_dir / "state" / "session-analysis.json"
-    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path = Path.home() / "Library" / "CloudStorage" / "Dropbox-Personal" / "Goldfish" / ".goldfish" / "session-analysis.json"
 
+    # Convert to JSON-serializable format
     json_sessions = []
     for s in all_sessions:
         json_sessions.append({
-            "info": {k: v if not isinstance(v, set) else list(v) for k, v in s["info"].items()},
+            "info": {
+                k: v if not isinstance(v, set) else list(v)
+                for k, v in s["info"].items()
+            },
             "classification": s["classification"]
         })
 
