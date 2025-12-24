@@ -21,12 +21,14 @@ def extract_session_info(filepath: str) -> dict:
         "session_id": os.path.basename(filepath).replace(".jsonl", ""),
         "date": None,
         "message_count": 0,
+        "conversation_messages": 0,  # Actual user/assistant messages (not metadata)
         "first_user_message": None,
         "topics": [],
         "files_touched": set(),
         "directories_created": set(),
         "tools_used": set(),
         "is_agent_session": "agent-" in os.path.basename(filepath),
+        "is_metadata_only": False,  # True if only file-history-snapshot, summary, etc.
         "file_size": os.path.getsize(filepath),
         "error": None
     }
@@ -57,6 +59,17 @@ def extract_session_info(filepath: str) -> dict:
                     continue
 
             result["message_count"] = len(messages)
+
+            # Count actual conversation messages vs metadata
+            metadata_types = {"file-history-snapshot", "summary", "progress"}
+            conversation_count = 0
+            for msg in messages:
+                msg_type = msg.get("type", "")
+                if msg_type in ("user", "assistant"):
+                    conversation_count += 1
+
+            result["conversation_messages"] = conversation_count
+            result["is_metadata_only"] = (conversation_count == 0 and len(messages) > 0)
 
             # Find first user message
             for msg in messages:
@@ -306,9 +319,17 @@ def classify_session(session_info: dict) -> dict:
         classification["confidence"] = min(70, 40 + project_candidates[likely_project] * 10)
         classification["reasoning"] = f"Best guess from path frequency: '{likely_project}'"
 
-    # Fifth priority: setup/config detection from message
+    # Fifth priority: setup/config detection from message or paths
     if classification["project"] == "UNCLEAR":
-        if any(kw in msg for kw in ["setup", "install", "config", "configure"]):
+        # Check for .claude path patterns in files
+        claude_path_detected = any("/.claude/" in fp for fp in files)
+
+        if claude_path_detected:
+            classification["project"] = "claude-setup"
+            classification["vault"] = "personal"
+            classification["confidence"] = 65
+            classification["reasoning"] = "Working on Claude Code configuration (/.claude/ path)"
+        elif any(kw in msg for kw in ["setup", "install", "config", "configure"]):
             classification["project"] = "claude-setup"
             classification["vault"] = "personal"
             classification["confidence"] = 55
@@ -319,7 +340,82 @@ def classify_session(session_info: dict) -> dict:
             classification["confidence"] = 55
             classification["reasoning"] = "MCP server configuration"
 
+    # Sixth priority: research fallback for sessions with content but no files
+    # These are valuable research/ideation sessions that should be captured
+    if classification["project"] == "UNCLEAR":
+        has_content = bool(session_info.get("first_user_message"))
+        has_files = bool(session_info.get("files_touched"))
+        conversation_count = session_info.get("conversation_messages", 0)
+
+        if has_content and not has_files and conversation_count >= 2:
+            # Extract a topic name from the first message
+            first_msg = session_info.get("first_user_message", "")
+            topic = extract_research_topic(first_msg)
+
+            if topic:
+                project_name = f"{topic}-research"
+            else:
+                project_name = "research"
+
+            classification["project"] = project_name.lower().replace(" ", "-")
+            classification["vault"] = "personal"
+            classification["confidence"] = 60
+            classification["reasoning"] = f"Research session: '{topic or 'general'}'"
+
     return classification
+
+
+def extract_research_topic(message: str) -> str:
+    """Extract a topic name from a research session's first message."""
+    if not message:
+        return ""
+
+    # Clean up the message
+    msg = message.lower().strip()
+
+    # Remove common command prefixes
+    msg = re.sub(r'^<command-message>.*?</command-message>\s*', '', msg)
+    msg = re.sub(r'^<command-name>.*?</command-name>\s*', '', msg)
+    msg = re.sub(r'^<command-args>\s*', '', msg)
+    msg = re.sub(r'</command-args>\s*$', '', msg)
+
+    # Common research-related phrases to strip
+    prefixes_to_strip = [
+        r"^i'?d? like (?:for )?you to ",
+        r"^i want (?:you )?to ",
+        r"^can you ",
+        r"^please ",
+        r"^do (?:all )?(?:the )?research (?:you can )?on ",
+        r"^research ",
+        r"^help me (?:with |understand )?",
+        r"^let'?s? ",
+    ]
+
+    for pattern in prefixes_to_strip:
+        msg = re.sub(pattern, '', msg, flags=re.IGNORECASE)
+
+    # Extract key topic words (first few meaningful words)
+    # Remove common filler words
+    stop_words = {"the", "a", "an", "and", "or", "but", "in", "on", "at", "to", "for",
+                  "of", "with", "by", "from", "as", "is", "was", "are", "were", "been",
+                  "be", "have", "has", "had", "do", "does", "did", "will", "would",
+                  "could", "should", "may", "might", "must", "shall", "can", "need",
+                  "about", "all", "also", "any", "because", "before", "between",
+                  "both", "each", "few", "first", "how", "into", "it", "its", "just",
+                  "last", "like", "make", "many", "more", "most", "new", "no", "not",
+                  "now", "only", "other", "our", "out", "over", "own", "same", "so",
+                  "some", "still", "such", "than", "that", "their", "them", "then",
+                  "there", "these", "they", "this", "those", "through", "too", "under",
+                  "up", "very", "what", "when", "where", "which", "while", "who",
+                  "why", "you", "your", "i", "me", "my", "we", "us"}
+
+    words = re.findall(r'\b[a-z][a-z0-9]*\b', msg)
+    topic_words = [w for w in words if w not in stop_words and len(w) > 2][:3]
+
+    if topic_words:
+        return " ".join(topic_words).title()
+
+    return ""
 
 def format_session_report(session_info: dict, classification: dict) -> str:
     """Format a session analysis report."""
@@ -391,20 +487,30 @@ def main():
         if "agent-" not in jsonl_file.name:
             session_files.append(str(jsonl_file))
 
-    # Also check history
-    history_file = Path.home() / ".claude" / "history.jsonl"
-    if history_file.exists():
-        session_files.append(str(history_file))
+    # Note: Skip history.jsonl - it's a session index with a different format, not a transcript
 
     print(f"\n{'═' * 60}")
     print("           🐠 GOLDFISH READER ANALYSIS")
     print(f"{'═' * 60}")
-    print(f"\nFound {len(session_files)} main session files to analyze\n")
+    print(f"\nFound {len(session_files)} session files to analyze\n")
 
     all_sessions = []
+    skipped_metadata = 0
+    skipped_empty = 0
 
     for filepath in sorted(session_files):
         session_info = extract_session_info(filepath)
+
+        # Skip metadata-only sessions (file-history-snapshot, etc.)
+        if session_info.get("is_metadata_only"):
+            skipped_metadata += 1
+            continue
+
+        # Skip empty/abandoned sessions (less than 2 conversation messages)
+        if session_info.get("conversation_messages", 0) < 2:
+            skipped_empty += 1
+            continue
+
         classification = classify_session(session_info)
 
         # Store for later
@@ -416,6 +522,9 @@ def main():
         # Print report
         print(format_session_report(session_info, classification))
         print()
+
+    if skipped_metadata or skipped_empty:
+        print(f"Skipped: {skipped_metadata} metadata-only, {skipped_empty} empty/abandoned")
 
     # Summary
     print(f"\n{'═' * 60}")
