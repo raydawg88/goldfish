@@ -1,68 +1,69 @@
 #!/usr/bin/env python3
 """
-🐠 Goldfish Transcript Appender
-Appends raw transcripts to large.md and flags inbox.md for processing.
+GOLDFISH TRANSCRIPT APPENDER (Tier 1: Auto-Save)
+
+This runs automatically on session end / every 5 minutes.
+It ONLY:
+1. Reads session data extracted by reader.py
+2. Appends raw transcripts to each project's large.md
+3. Flags inbox.md with "new session needs processing"
+
+NO quality summaries. That's Claude's job when /gfsave runs.
 """
 
 import json
-import os
 from pathlib import Path
 from datetime import datetime
 
+GOLDFISH_PATH = Path.home() / "Library" / "CloudStorage" / "Dropbox-Personal" / "Goldfish"
+SESSION_ANALYSIS_PATH = GOLDFISH_PATH / ".goldfish" / "session-analysis.json"
+PROCESSED_SESSIONS_PATH = GOLDFISH_PATH / ".goldfish" / "processed-sessions.json"
 
-def load_config():
-    """Load Goldfish configuration."""
-    config_path = Path.home() / ".goldfish" / "config.json"
-    if config_path.exists():
-        with open(config_path) as f:
-            return json.load(f)
-    return {
-        "memory_path": str(Path.home() / "Goldfish"),
-        "vaults": {"personal": {}, "work": {}},
-        "default_vault": "personal",
-        "projects": {}
-    }
+# Project to vault mapping
+WORK_PROJECTS = {"velona", "element-ai", "fred", "fred-research", "verra-ai"}
 
 
-def get_paths(config):
-    """Get paths from config."""
-    memory_path = Path(os.path.expanduser(config["memory_path"]))
-    goldfish_dir = Path.home() / ".goldfish"
-    return memory_path, goldfish_dir
-
-
-def load_processed_sessions(goldfish_dir: Path) -> set:
+def load_processed_sessions() -> set:
     """Load list of already-processed session IDs."""
-    processed_path = goldfish_dir / "state" / "processed-sessions.json"
-    if processed_path.exists():
-        with open(processed_path) as f:
+    if PROCESSED_SESSIONS_PATH.exists():
+        with open(PROCESSED_SESSIONS_PATH) as f:
             return set(json.load(f))
     return set()
 
 
-def save_processed_sessions(goldfish_dir: Path, processed: set):
+def save_processed_sessions(processed: set):
     """Save list of processed session IDs."""
-    processed_path = goldfish_dir / "state" / "processed-sessions.json"
-    processed_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(processed_path, 'w') as f:
+    with open(PROCESSED_SESSIONS_PATH, 'w') as f:
         json.dump(list(processed), f, indent=2)
 
 
-def get_vault_for_project(project: str, config: dict) -> str:
-    """Determine vault for a project based on config."""
-    # Check explicit project mappings
-    projects = config.get("projects", {})
-    if project.lower() in projects:
-        return projects[project.lower()].get("vault", config.get("default_vault", "personal"))
+def get_project_from_path(filepath: str) -> tuple:
+    """Extract project name and vault from session filepath."""
+    path = Path(filepath)
 
-    # Check vault keywords
-    for vault_name, vault_config in config.get("vaults", {}).items():
-        keywords = vault_config.get("keywords", [])
-        for keyword in keywords:
-            if keyword.lower() in project.lower():
-                return vault_name
+    # Look for project indicators in the path
+    parts = path.parts
 
-    return config.get("default_vault", "personal")
+    # Check for Goldfish directory structure
+    if "Goldfish" in parts:
+        idx = parts.index("Goldfish")
+        if len(parts) > idx + 2:
+            vault = parts[idx + 1]  # work or personal
+            project = parts[idx + 2]
+            return (project, vault)
+
+    # Check for project name in path
+    for part in reversed(parts):
+        part_lower = part.lower()
+        # Skip common non-project directories
+        if part_lower in {'.claude', 'projects', 'users', 'rayhernandez', 'library'}:
+            continue
+        # Check if it looks like a project
+        if '-' in part or part_lower.isalpha():
+            vault = "work" if part_lower in WORK_PROJECTS else "personal"
+            return (part_lower, vault)
+
+    return (None, None)
 
 
 def format_transcript(session: dict) -> str:
@@ -79,6 +80,7 @@ def format_transcript(session: dict) -> str:
     lines.append(f"**Messages:** {message_count}")
     lines.append("")
 
+    # First user message as summary
     first_msg = session.get("first_user_message", "")
     if first_msg:
         preview = first_msg[:500]
@@ -88,6 +90,7 @@ def format_transcript(session: dict) -> str:
         lines.append(f"> {preview}")
         lines.append("")
 
+    # Files touched
     files = session.get("files_touched", [])
     if files:
         lines.append("**Files touched:**")
@@ -97,10 +100,13 @@ def format_transcript(session: dict) -> str:
             lines.append(f"- ... and {len(files) - 20} more")
         lines.append("")
 
+    # Tools used
     tools = session.get("tools_used", [])
     if tools:
         lines.append(f"**Tools:** {', '.join(tools[:10])}")
         lines.append("")
+
+    lines.append(f"*Raw transcript in ~/.claude session files*")
 
     return "\n".join(lines)
 
@@ -111,7 +117,7 @@ def update_inbox(project_path: Path, session: dict):
 
     session_id = session.get("session_id", "unknown")[:8]
     date = session.get("date", datetime.now().strftime("%Y-%m-%d %H:%M"))
-    first_msg = (session.get("first_user_message", "") or "")[:200]
+    first_msg = session.get("first_user_message", "")[:200]
 
     new_entry = f"""
 ---
@@ -126,11 +132,13 @@ def update_inbox(project_path: Path, session: dict):
 ---
 """
 
+    # Read existing or create new
     if inbox_path.exists():
         content = inbox_path.read_text()
     else:
         content = f"# {project_path.name} - Inbox\n\nNew sessions waiting for quality summaries.\n"
 
+    # Append new entry at the top (after header)
     lines = content.split("\n")
     header_end = 0
     for i, line in enumerate(lines):
@@ -151,11 +159,13 @@ def append_to_large_md(project_path: Path, session: dict):
 
     transcript = format_transcript(session)
 
+    # Read existing or create new
     if large_path.exists():
         content = large_path.read_text()
     else:
         content = f"# {project_path.name} - Complete History\n\n*Full session transcripts appended automatically*\n"
 
+    # Append transcript
     content += transcript
 
     large_path.parent.mkdir(parents=True, exist_ok=True)
@@ -164,28 +174,27 @@ def append_to_large_md(project_path: Path, session: dict):
 
 def main():
     """Append new session transcripts and flag inbox."""
-    print("🐠 Goldfish Transcript Appender")
+    print("=" * 60)
+    print("  GOLDFISH TRANSCRIPT APPENDER (Tier 1: Auto-Save)")
+    print("=" * 60)
     print()
 
-    config = load_config()
-    memory_path, goldfish_dir = get_paths(config)
-    vaults = list(config.get("vaults", {}).keys())
-
-    # Load session analysis
-    session_analysis_path = goldfish_dir / "state" / "session-analysis.json"
-    if not session_analysis_path.exists():
+    # Load session analysis from reader
+    if not SESSION_ANALYSIS_PATH.exists():
         print("No session-analysis.json found. Run reader.py first.")
         return
 
-    with open(session_analysis_path) as f:
+    with open(SESSION_ANALYSIS_PATH) as f:
         raw_data = json.load(f)
 
-    # Parse sessions
-    sessions = []
+    # Handle both list format (new) and dict format (old)
     if isinstance(raw_data, list):
+        # New format: list of {info: {...}, classification: {...}}
+        sessions = []
         for item in raw_data:
             info = item.get("info", {})
             classification = item.get("classification", {})
+            # Merge info and classification
             session = {
                 "session_id": info.get("session_id"),
                 "filepath": info.get("filepath"),
@@ -199,66 +208,104 @@ def main():
             }
             sessions.append(session)
     else:
+        # Old format: dict with "sessions" key
         sessions = raw_data.get("sessions", [])
 
     print(f"Found {len(sessions)} total sessions")
 
-    processed = load_processed_sessions(goldfish_dir)
-    print(f"Already processed: {len(processed)}")
+    # Load already-processed sessions
+    processed = load_processed_sessions()
+    print(f"Already processed: {len(processed)} sessions")
 
-    new_sessions = [s for s in sessions if s.get("session_id") and s.get("session_id") not in processed]
+    # Find new sessions
+    new_sessions = []
+    for session in sessions:
+        session_id = session.get("session_id")
+        if session_id and session_id not in processed:
+            new_sessions.append(session)
 
     if not new_sessions:
         print("\nNo new sessions to process.")
         return
 
-    print(f"\nNew sessions: {len(new_sessions)}")
+    print(f"\nNew sessions to append: {len(new_sessions)}")
 
-    appended_count = 0
+    # Process each new session
     for session in new_sessions:
+        filepath = session.get("filepath", "")
         session_id = session.get("session_id", "unknown")
+
+        # Get project/vault from classification first, fallback to path detection
         project = session.get("project")
         vault = session.get("vault")
 
+        # Skip UNCLEAR or None projects
         if not project or project == "UNCLEAR":
-            print(f"  SKIP: {session_id[:8]}... (no project)")
+            project, vault = get_project_from_path(filepath)
+
+        if not project or project == "UNCLEAR":
+            print(f"  SKIP: {session_id[:8]}... (couldn't determine project)")
             continue
 
-        # Determine vault
-        if not vault or vault not in vaults:
-            vault = get_vault_for_project(project, config)
+        # Normalize vault
+        if not vault or vault not in ("work", "personal"):
+            vault = "work" if project.lower() in WORK_PROJECTS else "personal"
 
-        project_path = memory_path / vault / project.lower()
+        # Find project directory
+        project_path = GOLDFISH_PATH / vault / project.lower()
 
-        # Check if project exists
         if not project_path.exists():
-            # Try other vaults
-            found = False
-            for v in vaults:
-                alt_path = memory_path / v / project.lower()
-                if alt_path.exists():
-                    project_path = alt_path
-                    vault = v
-                    found = True
-                    break
+            # Try the other vault
+            other_vault = "personal" if vault == "work" else "work"
+            alt_path = GOLDFISH_PATH / other_vault / project.lower()
+            if alt_path.exists():
+                project_path = alt_path
+                vault = other_vault
+            elif project.lower().startswith("no-category/"):
+                # Auto-create no-category subdirectories
+                project_path.mkdir(parents=True, exist_ok=True)
+                goldfish_dir = project_path / "goldfish"
+                goldfish_dir.mkdir(exist_ok=True)
+                # Create initial small.md
+                topic = project.split("/")[-1].replace("-", " ").title()
+                small_md = goldfish_dir / "small.md"
+                small_md.write_text(f"""# {topic}
 
-            if not found:
-                print(f"  SKIP: {session_id[:8]}... (project not found: {project})")
+**Uncategorized session**
+
+Sessions: 1 | Last: {session.get('date', 'unknown')}
+
+## Context
+This session didn't match any project and wasn't explicit research.
+If it becomes important, move it to a proper project folder.
+
+---
+*"remember" = medium.md | "ultra remember" = large.md*
+""")
+                print(f"  CREATE: {vault}/{project.lower()}/")
+            else:
+                print(f"  SKIP: {session_id[:8]}... (project dir doesn't exist: {project_path})")
                 continue
 
         print(f"  {session_id[:8]}... -> {vault}/{project.lower()}")
 
+        # Append to large.md
         append_to_large_md(project_path, session)
-        update_inbox(project_path, session)
-        processed.add(session_id)
-        appended_count += 1
 
-    save_processed_sessions(goldfish_dir, processed)
+        # Update inbox.md
+        update_inbox(project_path, session)
+
+        # Mark as processed
+        processed.add(session_id)
+
+    # Save processed list
+    save_processed_sessions(processed)
 
     print()
-    print(f"Appended {appended_count} sessions to large.md files")
-    print("Inbox.md files flagged for processing")
-    print("\nRun /gfsave to generate quality summaries.")
+    print(f"Appended {len(new_sessions)} sessions to large.md files")
+    print("Inbox.md files updated with NEEDS_PROCESSING flags")
+    print()
+    print("Run /gfsave to generate quality summaries.")
 
 
 if __name__ == "__main__":

@@ -340,29 +340,60 @@ def classify_session(session_info: dict) -> dict:
             classification["confidence"] = 55
             classification["reasoning"] = "MCP server configuration"
 
-    # Sixth priority: research fallback for sessions with content but no files
-    # These are valuable research/ideation sessions that should be captured
+    # Sixth priority: no-file sessions (research or uncategorized)
     if classification["project"] == "UNCLEAR":
         has_content = bool(session_info.get("first_user_message"))
         has_files = bool(session_info.get("files_touched"))
         conversation_count = session_info.get("conversation_messages", 0)
 
         if has_content and not has_files and conversation_count >= 2:
-            # Extract a topic name from the first message
             first_msg = session_info.get("first_user_message", "")
+            msg_lower = first_msg.lower()
+
+            # Check if this is intentional research
+            research_indicators = [
+                "research", "learn about", "explore", "investigate",
+                "find out", "help me understand", "tell me about",
+                "explain", "what do you know about", "deep dive"
+            ]
+            is_research = any(indicator in msg_lower for indicator in research_indicators)
+
+            # Extract topic from message
             topic = extract_research_topic(first_msg)
 
-            if topic:
-                project_name = f"{topic}-research"
+            if is_research:
+                # Intentional research - determine vault from keywords
+                vault = determine_vault_from_message(msg_lower, vaults_config, default_vault)
+                if topic:
+                    project_name = f"{topic}-research"
+                else:
+                    project_name = "research"
+                classification["project"] = project_name.lower().replace(" ", "-")
+                classification["vault"] = vault
+                classification["confidence"] = 65
+                classification["reasoning"] = f"Research session: '{topic or 'general'}'"
             else:
-                project_name = "research"
-
-            classification["project"] = project_name.lower().replace(" ", "-")
-            classification["vault"] = "personal"
-            classification["confidence"] = 60
-            classification["reasoning"] = f"Research session: '{topic or 'general'}'"
+                # Not research - goes to no-category
+                if topic:
+                    project_name = f"no-category/{topic.lower().replace(' ', '-')}"
+                else:
+                    project_name = "no-category/misc"
+                classification["project"] = project_name
+                classification["vault"] = "personal"
+                classification["confidence"] = 50
+                classification["reasoning"] = f"Uncategorized session: '{topic or 'misc'}'"
 
     return classification
+
+
+def determine_vault_from_message(msg: str, vaults_config: dict, default_vault: str) -> str:
+    """Check message for vault keywords and return appropriate vault."""
+    for vault_name, vault_config in vaults_config.items():
+        keywords = vault_config.get("keywords", [])
+        for keyword in keywords:
+            if keyword.lower() in msg:
+                return vault_name
+    return default_vault
 
 
 def extract_research_topic(message: str) -> str:
